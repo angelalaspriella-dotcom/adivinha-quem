@@ -2,6 +2,9 @@
 
 O jogo de tabuleiro, para a equipa toda numa video call.
 
+**A jogar em:** https://adivinha-quem-rk3r.onrender.com (plano grátis do Render: abre o link
+um minuto antes da chamada para acordar o servidor).
+
 Em cada ronda uma pessoa é o **guardião** e só ela vê a **pessoa secreta** (uma das 17
 caras da equipa). Toda a gente pergunta à vez, em voz alta na chamada, só perguntas de sim
 ou não. O guardião responde e regista Sim ou Não na app, para a resposta ficar no ecrã de
