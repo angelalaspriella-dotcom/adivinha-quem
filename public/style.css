@@ -140,6 +140,8 @@ h1, h2, p { margin: 0; }
 .btn-blue { background: var(--blue); color: var(--cream); }
 .btn-green { background: var(--green); color: var(--cream); }
 .btn-yellow { background: var(--yellow); color: var(--ink); }
+.btn-guess { font-size: 20px; padding: 18px 20px; box-shadow: var(--shadow); border-width: 4px; }
+.btn.armed { background: var(--red); color: var(--cream); }
 .linkbtn {
   background: none;
   border: 0;
@@ -265,8 +267,7 @@ input[type="text"] {
 .secret-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .secret-name { font-family: var(--font-display); font-size: 22px; line-height: 1.1; }
 .secret-tip { font-size: 14px; opacity: .9; max-width: 32ch; }
-.answer-row { display: flex; gap: 12px; margin-bottom: 8px; }
-.answer-row .btn { font-size: 26px; padding: 22px 10px; }
+#end-round-btn { margin-bottom: 20px; }
 
 /* board */
 .board-wrap {

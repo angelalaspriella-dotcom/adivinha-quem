@@ -44,10 +44,10 @@
         <summary>Como se joga</summary>
         <ol>
           <li>Em cada ronda, uma pessoa é o <strong>guardião</strong> e só ela vê a <strong>pessoa secreta</strong>.</li>
-          <li>Os outros perguntam à vez, <strong>em voz alta na chamada</strong>, só perguntas de sim ou não. O guardião responde e regista Sim ou Não na app.</li>
-          <li>Cada um baixa no seu tabuleiro as cartas que já não servem.</li>
-          <li>Quem achar que sabe, <strong>arrisca</strong>. Acertou: ganha a ronda. Errou: fica de fora e toda a gente fica a saber quem não é.</li>
-          <li>Se a ordem der as voltas todas sem ninguém acertar, ganha o guardião.</li>
+          <li>Tudo o resto é falado na chamada: os outros fazem perguntas de sim ou não, o guardião responde.</li>
+          <li>Aqui, cada um baixa no seu tabuleiro as cartas que já não servem.</li>
+          <li>Quem achar que sabe, carrega em <strong>Acho que é esta pessoa</strong>. Acertou: ganha a ronda. Errou: fica de fora e toda a gente fica a saber quem não é.</li>
+          <li>Se ninguém acertar, o guardião dá a ronda por terminada e leva o ponto.</li>
         </ol>
       </details>
     </section>
@@ -62,18 +62,12 @@
 
       <div class="box">
         <h2 class="box-title">Regras da sala</h2>
-        <p class="setting-label">Temporizador por pergunta</p>
-        <div class="opt-row" id="timer-row">
-          <button class="opt-btn" data-timer="0">Sem</button>
-          <button class="opt-btn" data-timer="30">30s</button>
-          <button class="opt-btn" data-timer="45">45s</button>
-          <button class="opt-btn" data-timer="60">60s</button>
-        </div>
-        <p class="setting-label">Voltas de perguntas antes de o guardião ganhar</p>
-        <div class="opt-row" id="laps-row">
-          <button class="opt-btn" data-laps="1">1 volta</button>
-          <button class="opt-btn" data-laps="2">2 voltas</button>
-          <button class="opt-btn" data-laps="3">3 voltas</button>
+        <p class="setting-label">Tempo por ronda</p>
+        <div class="opt-row" id="minutes-row">
+          <button class="opt-btn" data-minutes="0">Sem limite</button>
+          <button class="opt-btn" data-minutes="5">5 min</button>
+          <button class="opt-btn" data-minutes="8">8 min</button>
+          <button class="opt-btn" data-minutes="10">10 min</button>
         </div>
         <p class="setting-note" id="setting-note"></p>
       </div>
@@ -101,13 +95,9 @@
           <p class="eyebrow light">só tu vês isto</p>
           <div class="secret-photo" id="secret-photo"></div>
           <p class="secret-name" id="secret-name"></p>
-          <p class="secret-tip">Responde em voz alta e regista aqui, para a resposta ficar no ecrã de todos.</p>
+          <p class="secret-tip">Responde às perguntas na chamada, só sim ou não. Quando alguém arriscar, a app diz logo se acertou.</p>
         </div>
-        <div class="answer-row">
-          <button class="btn btn-green btn-big" id="ans-sim">SIM</button>
-          <button class="btn btn-red btn-big" id="ans-nao">NÃO</button>
-        </div>
-        <button class="linkbtn" id="ans-skip">Saltar esta pessoa (não está a perguntar)</button>
+        <button class="btn btn-big" id="end-round-btn">Ninguém acertou, terminar a ronda</button>
       </div>
 
       <!-- player view -->
@@ -123,14 +113,14 @@
       </div>
 
       <div class="box">
-        <h2 class="box-title">Ordem das perguntas <span class="lap-label" id="lap-label"></span></h2>
-        <ol class="ask-order" id="ask-order"></ol>
-        <button class="linkbtn" id="host-skip" hidden>Saltar quem está a perguntar</button>
+        <h2 class="box-title">A equipa <span class="lap-label">cartas de pé</span></h2>
+        <ul class="ask-order" id="team-list"></ul>
+        <button class="linkbtn" id="host-end-round" hidden>Terminar a ronda sem vencedor</button>
       </div>
 
-      <div class="box">
-        <h2 class="box-title">Respostas</h2>
-        <ul class="answer-log" id="answer-log"></ul>
+      <div class="box" id="misses-box" hidden>
+        <h2 class="box-title">Palpites errados</h2>
+        <ul class="answer-log" id="misses-log"></ul>
       </div>
     </section>
 

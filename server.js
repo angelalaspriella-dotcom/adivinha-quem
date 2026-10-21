@@ -10,8 +10,7 @@ const ROOM_TTL_MS = 10 * 60_000; // empty rooms are deleted after this
 const GUARDIAN_GRACE_MS = Number(process.env.GUARDIAN_GRACE_MS) || 20_000; // time for a dropped guardian to come back
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 20;
-const TIMER_OPTIONS = [0, 30, 45, 60]; // seconds per question; 0 = no timer
-const LAP_OPTIONS = [1, 2, 3];          // how many times the asking order loops before the guardian wins
+const ROUND_MINUTES = [0, 5, 8, 10]; // optional round timer; 0 = none
 
 const PLAYER_COLORS = [
   '#e63946', '#f4a261', '#e9c46a', '#2a9d8f', '#457b9d',
@@ -48,10 +47,10 @@ function makeRoom() {
     game: null,
     round: 0,
     guardianHistory: [], // player ids that already guarded, so the role rotates
-    turnTimer: null,
+    roundTimer: null,
     graceTimer: null,
     emptySince: null,
-    settings: { timer: 0, laps: 2 }
+    settings: { minutes: 0 }
   };
   rooms.set(room.code, room);
   return room;
@@ -69,11 +68,6 @@ function broadcast(room, msg, exceptId = null) {
   for (const p of room.players.values()) {
     if (p.id !== exceptId) send(p.ws, msg);
   }
-}
-
-function currentAskerId(g) {
-  if (!g || !g.order.length) return null;
-  return g.order[g.turnIndex % g.order.length];
 }
 
 function snapshotFor(room, player) {
@@ -103,12 +97,8 @@ function snapshotFor(room, player) {
     base.game = {
       guardianId: g.guardianId,
       secretKey: reveal ? g.secretKey : null,
-      order: g.order,
-      currentId: room.phase === 'playing' ? currentAskerId(g) : null,
-      lap: g.lap,
-      totalLaps: g.totalLaps,
-      turnEndsAt: g.turnEndsAt || null,
-      answers: g.answers,
+      endsAt: g.endsAt || null,
+      startedAt: g.startedAt,
       guesses: g.guesses,
       down: g.down[player.id] || [],
       result: room.phase === 'results' ? g.result : null
@@ -121,14 +111,11 @@ function pushState(room) {
   for (const p of room.players.values()) send(p.ws, snapshotFor(room, p));
 }
 
-function clearTimer(room) {
-  if (room.turnTimer) {
-    clearTimeout(room.turnTimer);
-    room.turnTimer = null;
+function clearTimers(room) {
+  if (room.roundTimer) {
+    clearTimeout(room.roundTimer);
+    room.roundTimer = null;
   }
-}
-
-function clearGrace(room) {
   if (room.graceTimer) {
     clearTimeout(room.graceTimer);
     room.graceTimer = null;
@@ -137,90 +124,38 @@ function clearGrace(room) {
 
 // ---------- game flow ----------
 
-function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
 // The guardian rotates: whoever has guarded least recently goes next.
 function pickGuardian(room) {
   const ids = connectedPlayers(room).map((p) => p.id);
   const never = ids.filter((id) => !room.guardianHistory.includes(id));
   if (never.length) return never[Math.floor(Math.random() * never.length)];
-  // everyone has guarded: pick the one longest ago
   for (const id of room.guardianHistory) if (ids.includes(id)) return id;
   return ids[0];
 }
 
 function startRound(room) {
-  clearTimer(room);
+  clearTimers(room);
   const guardianId = pickGuardian(room);
   room.guardianHistory = [...room.guardianHistory.filter((id) => id !== guardianId), guardianId];
-  const askers = shuffle(connectedPlayers(room).map((p) => p.id).filter((id) => id !== guardianId));
   room.round += 1;
+  const minutes = room.settings.minutes;
   room.game = {
     guardianId,
     secretKey: PEOPLE[Math.floor(Math.random() * PEOPLE.length)].key,
-    order: askers,
-    turnIndex: 0,
-    lap: 1,
-    totalLaps: room.settings.laps,
-    answers: [],   // { by, a: 'sim' | 'nao' | 'skip' }
-    guesses: [],   // { by, key, correct }
+    startedAt: Date.now(),
+    endsAt: minutes ? Date.now() + minutes * 60_000 : null,
+    guesses: [],   // { by, key, correct, t }
     eliminated: [],
     down: {},      // playerId -> [person keys]
-    turnEndsAt: null,
     result: null
   };
+  if (minutes) room.roundTimer = setTimeout(() => finishRound(room, null, 'time'), minutes * 60_000);
   room.phase = 'playing';
-  armTurn(room);
-}
-
-function armTurn(room) {
-  const g = room.game;
-  clearTimer(room);
-  if (room.phase !== 'playing') return;
-  // skip askers who are gone or out of the round
-  let guard = 0;
-  while (guard++ < g.order.length) {
-    const current = room.players.get(currentAskerId(g));
-    if (current && current.connected && !g.eliminated.includes(current.id)) break;
-    advanceTurnPointer(room);
-    if (room.phase !== 'playing') return;
-  }
-  if (room.settings.timer > 0) {
-    const ms = room.settings.timer * 1000;
-    g.turnEndsAt = Date.now() + ms;
-    room.turnTimer = setTimeout(() => recordAnswer(room, 'skip'), ms);
-  } else {
-    g.turnEndsAt = null;
-  }
   pushState(room);
 }
 
-function advanceTurnPointer(room) {
-  const g = room.game;
-  g.turnIndex += 1;
-  if (g.turnIndex % g.order.length === 0) {
-    g.lap += 1;
-    if (g.lap > g.totalLaps) finishRound(room, null, 'laps');
-  }
-}
-
-function recordAnswer(room, a) {
-  const g = room.game;
-  if (room.phase !== 'playing') return;
-  g.answers.push({ by: currentAskerId(g), a, t: Date.now() });
-  advanceTurnPointer(room);
-  if (room.phase === 'playing') armTurn(room);
-}
-
 function finishRound(room, winnerId, how) {
-  clearTimer(room);
-  clearGrace(room);
+  clearTimers(room);
   const g = room.game;
   const awards = {};
   const give = (id, n) => {
@@ -230,16 +165,15 @@ function finishRound(room, winnerId, how) {
     p.score = (p.score || 0) + n;
   };
   if (winnerId) give(winnerId, 2);
-  else give(g.guardianId, 1);
-  g.turnEndsAt = null;
-  g.result = { winnerId, how, awards, secretKey: g.secretKey, questions: g.answers.filter((x) => x.a !== 'skip').length };
+  else if (how !== 'guardian_left') give(g.guardianId, 1);
+  g.endsAt = null;
+  g.result = { winnerId, how, awards, secretKey: g.secretKey, seconds: Math.round((Date.now() - g.startedAt) / 1000) };
   room.phase = 'results';
   pushState(room);
 }
 
 function backToLobby(room) {
-  clearTimer(room);
-  clearGrace(room);
+  clearTimers(room);
   room.game = null;
   room.phase = 'lobby';
   for (const [id, p] of room.players) if (!p.connected) room.players.delete(id);
@@ -289,23 +223,18 @@ wss.on('connection', (ws) => {
 
     if (connectedPlayers(room).length === 0) {
       room.emptySince = Date.now();
-    } else if (room.phase === 'playing') {
-      const g = room.game;
-      if (player.id === g.guardianId) {
-        // the one person who can answer dropped: a reload or a wifi blip should
-        // not kill the round, so wait a bit for them before giving up
-        broadcast(room, { type: 'notice', message: `${player.name} (guardião) perdeu a ligação. À espera que volte…` });
-        clearGrace(room);
-        room.graceTimer = setTimeout(() => {
-          room.graceTimer = null;
-          const p = room.players.get(player.id);
-          if (room.phase !== 'playing' || !room.game || room.game.guardianId !== player.id || (p && p.connected)) return;
-          broadcast(room, { type: 'notice', message: `${player.name} (guardião) não voltou. A ronda terminou sem vencedor.` });
-          finishRound(room, null, 'guardian_left');
-        }, GUARDIAN_GRACE_MS);
-      } else if (currentAskerId(g) === player.id) {
-        armTurn(room);
-      }
+    } else if (room.phase === 'playing' && player.id === room.game.guardianId) {
+      // the one person who knows the secret dropped: a reload or a wifi blip
+      // should not kill the round, so wait a bit for them before giving up
+      broadcast(room, { type: 'notice', message: `${player.name} (guardião) perdeu a ligação. À espera que volte…` });
+      if (room.graceTimer) clearTimeout(room.graceTimer);
+      room.graceTimer = setTimeout(() => {
+        room.graceTimer = null;
+        const p = room.players.get(player.id);
+        if (room.phase !== 'playing' || !room.game || room.game.guardianId !== player.id || (p && p.connected)) return;
+        broadcast(room, { type: 'notice', message: `${player.name} (guardião) não voltou. A ronda terminou sem vencedor.` });
+        finishRound(room, null, 'guardian_left');
+      }, GUARDIAN_GRACE_MS);
     }
     pushState(room);
   });
@@ -347,8 +276,6 @@ function handleMessage(ws, msg) {
     if (!room.hostId) room.hostId = player.id;
     ws.roomCode = room.code;
     ws.playerId = player.id;
-    // joining mid-round: you get a board right away and a turn at the end of the order
-    if (room.phase === 'playing') room.game.order.push(player.id);
     send(ws, { type: 'joined', code: room.code, playerId: player.id, token: player.token });
     pushState(room);
     return;
@@ -367,8 +294,9 @@ function handleMessage(ws, msg) {
     ws.roomCode = room.code;
     ws.playerId = player.id;
     ensureHost(room);
-    if (room.game && room.game.guardianId === player.id) {
-      clearGrace(room);
+    if (room.game && room.game.guardianId === player.id && room.graceTimer) {
+      clearTimeout(room.graceTimer);
+      room.graceTimer = null;
       if (room.phase === 'playing') broadcast(room, { type: 'notice', message: `${player.name} (guardião) voltou.` }, player.id);
     }
     send(ws, { type: 'joined', code: room.code, playerId: player.id, token: player.token });
@@ -387,8 +315,7 @@ function handleMessage(ws, msg) {
   switch (msg.type) {
     case 'settings': {
       if (!isHost || room.phase === 'playing') return;
-      if (TIMER_OPTIONS.includes(msg.timer)) room.settings.timer = msg.timer;
-      if (LAP_OPTIONS.includes(msg.laps)) room.settings.laps = msg.laps;
+      if (ROUND_MINUTES.includes(msg.minutes)) room.settings.minutes = msg.minutes;
       pushState(room);
       break;
     }
@@ -399,21 +326,6 @@ function handleMessage(ws, msg) {
         return send(ws, { type: 'error', message: `São precisas pelo menos ${MIN_PLAYERS} pessoas.` });
       }
       startRound(room);
-      break;
-    }
-
-    case 'answer': {
-      // the guardian records the answer they just gave out loud
-      if (room.phase !== 'playing' || player.id !== g.guardianId) return;
-      if (!['sim', 'nao', 'skip'].includes(msg.a)) return;
-      recordAnswer(room, msg.a);
-      break;
-    }
-
-    case 'skip': {
-      // host or guardian can move past an asker who is away from the keyboard
-      if (room.phase !== 'playing' || !(isHost || player.id === g.guardianId)) return;
-      recordAnswer(room, 'skip');
       break;
     }
 
@@ -433,13 +345,16 @@ function handleMessage(ws, msg) {
       g.guesses.push({ by: player.id, key: msg.key, correct, t: Date.now() });
       if (correct) return finishRound(room, player.id, 'guess');
       g.eliminated.push(player.id);
-      const alive = g.order.filter((id) => {
-        const p = room.players.get(id);
-        return p && p.connected && !g.eliminated.includes(id);
-      });
+      const alive = connectedPlayers(room).filter((p) => p.id !== g.guardianId && !g.eliminated.includes(p.id));
       if (!alive.length) return finishRound(room, null, 'all_out');
-      if (currentAskerId(g) === player.id) armTurn(room);
-      else pushState(room);
+      pushState(room);
+      break;
+    }
+
+    case 'end_round': {
+      // guardian or host closes the round when nobody will get it
+      if (room.phase !== 'playing' || !(isHost || player.id === g.guardianId)) return;
+      finishRound(room, null, 'called');
       break;
     }
 
@@ -474,7 +389,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
     if (room.emptySince && now - room.emptySince > ROOM_TTL_MS) {
-      clearTimer(room);
+      clearTimers(room);
       rooms.delete(code);
     }
   }

@@ -144,17 +144,13 @@
   function renderLobby() {
     $('room-code').textContent = state.code;
     const s = state.settings;
-    for (const btn of document.querySelectorAll('[data-timer]')) {
-      btn.classList.toggle('selected', Number(btn.dataset.timer) === s.timer);
+    for (const btn of document.querySelectorAll('[data-minutes]')) {
+      btn.classList.toggle('selected', Number(btn.dataset.minutes) === s.minutes);
       btn.disabled = !isHost();
     }
-    for (const btn of document.querySelectorAll('[data-laps]')) {
-      btn.classList.toggle('selected', Number(btn.dataset.laps) === s.laps);
-      btn.disabled = !isHost();
-    }
-    $('setting-note').textContent = (s.timer
-      ? `Cada pergunta tem ${s.timer} segundos; quem demorar é saltado.`
-      : 'Sem temporizador: a equipa gere o ritmo na chamada.') + (isHost() ? '' : ' Só o anfitrião muda as regras.');
+    $('setting-note').textContent = (s.minutes
+      ? `Cada ronda tem ${s.minutes} minutos. Se o tempo acabar sem ninguém acertar, o guardião ganha.`
+      : 'Sem limite de tempo: o guardião termina a ronda quando ninguém acertar.') + (isHost() ? '' : ' Só o anfitrião muda as regras.');
     $('lobby-players').innerHTML = state.players.map((p) => playerRow(p, p.score ? [`<span class="pts">${p.score} pts</span>`] : [])).join('');
     const n = state.players.filter((p) => p.connected).length;
     const need = Math.max(0, 3 - n);
@@ -174,70 +170,50 @@
   function renderPlaying() {
     const game = g();
     const guardian = player(game.guardianId);
-    const current = player(game.currentId);
     const iAmOut = me().eliminated;
-    const myTurn = game.currentId === state.youId;
-    const lapsText = `volta ${Math.min(game.lap, game.totalLaps)} de ${game.totalLaps}`;
 
     $('round-badge').textContent = `RONDA ${state.round}`;
-    $('lap-label').textContent = lapsText;
-    startTimer(game.turnEndsAt, $('timer'), $('timer-value'));
+    startTimer(game.endsAt, $('timer'), $('timer-value'));
 
-    // banner
     const banner = $('turn-banner');
     banner.className = 'turn-banner';
     if (isGuardian()) {
-      banner.innerHTML = current
-        ? `${esc(current.name)} pergunta agora<small>Ouve a pergunta na chamada, responde em voz alta e regista.</small>`
-        : 'À espera de quem pergunta…';
+      banner.classList.add('mine');
+      banner.innerHTML = 'És o guardião desta ronda<small>Responde às perguntas na chamada. Os outros tratam das cartas.</small>';
     } else if (iAmOut) {
       banner.classList.add('out');
-      banner.innerHTML = 'Erraste o palpite. Estás fora desta ronda.<small>Podes continuar a ver. Volta na próxima.</small>';
-    } else if (myTurn) {
-      banner.classList.add('mine');
-      banner.innerHTML = `É a tua vez de perguntar<small>Faz uma pergunta de sim ou não a ${esc(guardian ? guardian.name : 'quem guarda')}, em voz alta.</small>`;
+      banner.innerHTML = 'Erraste. Estás fora desta ronda.<small>Podes continuar a ver. Voltas na próxima.</small>';
     } else {
-      banner.innerHTML = current
-        ? `${esc(current.name)} está a perguntar<small>${esc(guardian ? guardian.name : '')} guarda o segredo. Baixa as cartas que já não servem.</small>`
-        : 'À espera…';
+      banner.innerHTML = `${esc(guardian ? guardian.name : 'Alguém')} guarda o segredo<small>Perguntem na chamada. Aqui, baixa as cartas que já não servem.</small>`;
     }
 
-    // guardian vs player view
     $('guardian-view').hidden = !isGuardian();
     $('player-view').hidden = isGuardian();
     if (isGuardian()) {
       const sp = person(game.secretKey);
       $('secret-photo').innerHTML = sp ? photo(sp.key) : '';
       $('secret-name').textContent = sp ? sp.name : '';
-      $('ans-sim').disabled = $('ans-nao').disabled = !current;
     } else {
       renderBoard(game, iAmOut);
     }
 
-    // asking order
-    $('ask-order').innerHTML = game.order.map((id) => {
-      const p = player(id);
-      if (!p) return '';
-      const cls = [id === game.currentId ? 'current' : '', p.eliminated ? 'out' : '', p.connected ? '' : 'disconnected'].join(' ');
-      return `<li class="chip ${cls}"><span class="dot" style="background:${p.color};width:10px;height:10px"></span>${esc(p.name)}${id === state.youId ? ' (tu)' : ''}<span class="cnt">${p.standing}</span></li>`;
+    // team: everyone hunting, with how many cards they still have up
+    $('team-list').innerHTML = state.players.filter((p) => p.id !== game.guardianId).map((p) => {
+      const cls = [p.eliminated ? 'out' : '', p.connected ? '' : 'disconnected'].join(' ');
+      return `<li class="chip ${cls}"><span class="dot" style="background:${p.color};width:10px;height:10px"></span>${esc(p.name)}${p.id === state.youId ? ' (tu)' : ''}<span class="cnt">${p.standing}</span></li>`;
     }).join('');
-    $('host-skip').hidden = !(isHost() && !isGuardian()) || !current;
+    $('host-end-round').hidden = !(isHost() && !isGuardian());
 
-    // answers log, newest first
-    const names = new Map(game.order.map((id, i) => [id, i]));
-    const items = [];
-    game.answers.forEach((a, i) => items.push({ t: a.t, html: `<li><span class="n">${i + 1}.</span><span class="who">${esc(player(a.by)?.name || '?')}</span><span class="ans ${a.a}">${a.a === 'sim' ? 'SIM' : a.a === 'nao' ? 'NÃO' : 'saltou'}</span></li>` }));
-    game.guesses.forEach((q) => items.push({ t: q.t, html: `<li><span class="n">✗</span><span class="who">${esc(player(q.by)?.name || '?')} arriscou ${esc(person(q.key)?.name || '?')}</span><span class="ans miss">ERROU</span></li>` }));
-    items.sort((a, b) => b.t - a.t);
-    $('answer-log').innerHTML = items.length ? items.map((x) => x.html).join('') : '<li class="empty-note">Ainda ninguém perguntou nada.</li>';
-    void names;
+    const misses = game.guesses.filter((q) => !q.correct).slice().reverse();
+    $('misses-box').hidden = !misses.length;
+    $('misses-log').innerHTML = misses.map((q) => `<li><span class="n">✗</span><span class="who">${esc(player(q.by)?.name || '?')} disse ${esc(person(q.key)?.name || '?')}</span><span class="ans miss">NÃO É</span></li>`).join('');
   }
 
   function renderBoard(game, iAmOut) {
     const down = myDown();
     const total = state.people.length;
     const canPlay = !iAmOut;
-    $('board-count').textContent = `${total - down.length} de ${total} de pé${canPlay ? (guessMode ? ' · escolhe o palpite' : ' · toca para baixar') : ''}`;
+    $('board-count').textContent = `${total - down.length} de ${total} de pé${canPlay ? (guessMode ? ' · escolhe quem é' : ' · toca para baixar') : ''}`;
     const board = $('board');
     board.classList.toggle('guessing', guessMode && canPlay);
     // only rebuild the cards when something on the board changed, so the
@@ -266,9 +242,7 @@
 
   function renderGuessArea() {
     const area = $('guess-area');
-    const iAmOut = me().eliminated;
-    if (iAmOut) { area.innerHTML = ''; return; }
-    const guardian = player(g().guardianId);
+    if (me().eliminated) { area.innerHTML = ''; return; }
     if (pickKey) {
       const p = person(pickKey);
       area.innerHTML = `<div class="confirm"><div><b>É ${esc(p.name)}?</b> Se errares, ficas fora da ronda e toda a gente fica a saber.</div>
@@ -277,11 +251,11 @@
       $('cancel-guess').addEventListener('click', () => { pickKey = null; renderGuessArea(); });
       area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else if (guessMode) {
-      area.innerHTML = `<div class="confirm"><div><b>Toca no tabuleiro</b> em quem achas que é a pessoa secreta de ${esc(guardian ? guardian.name : '')}.</div>
-        <div class="row"><button class="btn" id="cancel-guess">Cancelar palpite</button></div></div>`;
+      area.innerHTML = `<div class="confirm"><div><b>Toca no tabuleiro</b> na pessoa que achas que é.</div>
+        <div class="row"><button class="btn" id="cancel-guess">Afinal não</button></div></div>`;
       $('cancel-guess').addEventListener('click', () => { guessMode = false; renderPlaying(); });
     } else {
-      area.innerHTML = `<button class="btn btn-red btn-big" id="guess-btn">Arriscar palpite</button>`;
+      area.innerHTML = `<button class="btn btn-yellow btn-big btn-guess" id="guess-btn">💡 Acho que é esta pessoa</button>`;
       $('guess-btn').addEventListener('click', () => { guessMode = true; renderPlaying(); });
     }
   }
@@ -309,10 +283,13 @@
 
     $('result-photo').innerHTML = sp ? photo(sp.key) : '';
     $('result-name').textContent = sp ? sp.name : '';
+    const mins = Math.floor(r.seconds / 60), secs = r.seconds % 60;
+    const dur = mins ? `${mins} min ${secs} s` : `${secs} s`;
     const howText = {
-      guess: `${winner?.name || '?'} acertou ao fim de ${r.questions} ${r.questions === 1 ? 'pergunta' : 'perguntas'}.`,
-      laps: `A ordem deu as voltas todas e ninguém acertou. Ponto para ${guardian?.name || 'o guardião'}.`,
-      all_out: `Toda a gente errou o palpite. Ponto para ${guardian?.name || 'o guardião'}.`,
+      guess: `${winner?.name || '?'} acertou ao fim de ${dur}.`,
+      time: `Acabou o tempo e ninguém acertou. Ponto para ${guardian?.name || 'o guardião'}.`,
+      called: `A ronda foi dada por terminada sem ninguém acertar. Ponto para ${guardian?.name || 'o guardião'}.`,
+      all_out: `Toda a gente errou. Ponto para ${guardian?.name || 'o guardião'}.`,
       guardian_left: 'O guardião saiu a meio da ronda.'
     };
     $('result-how').textContent = howText[r.how] || '';
@@ -345,8 +322,8 @@
     pillEl.hidden = false;
     const tick = () => {
       const s = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
-      valueEl.textContent = `${s}s`;
-      pillEl.classList.toggle('urgent', s <= 10);
+      valueEl.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      pillEl.classList.toggle('urgent', s <= 30);
       if (s <= 0) stopTimer();
     };
     tick();
@@ -390,38 +367,29 @@
     }
   });
 
-  for (const btn of document.querySelectorAll('[data-timer]')) {
-    btn.addEventListener('click', () => wsSend({ type: 'settings', timer: Number(btn.dataset.timer) }));
-  }
-  for (const btn of document.querySelectorAll('[data-laps]')) {
-    btn.addEventListener('click', () => wsSend({ type: 'settings', laps: Number(btn.dataset.laps) }));
+  for (const btn of document.querySelectorAll('[data-minutes]')) {
+    btn.addEventListener('click', () => wsSend({ type: 'settings', minutes: Number(btn.dataset.minutes) }));
   }
 
   $('start-btn').addEventListener('click', () => wsSend({ type: 'start' }));
   $('next-btn').addEventListener('click', () => wsSend({ type: 'next_round' }));
-  $('ans-sim').addEventListener('click', () => wsSend({ type: 'answer', a: 'sim' }));
-  $('ans-nao').addEventListener('click', () => wsSend({ type: 'answer', a: 'nao' }));
-  $('ans-skip').addEventListener('click', () => wsSend({ type: 'answer', a: 'skip' }));
-  $('host-skip').addEventListener('click', () => wsSend({ type: 'skip' }));
 
-  // terminar o jogo a meio: um toque arma, outro em 3s confirma
-  const endGameBtn = $('end-game-btn');
-  let endGameArmTimer = null;
-  function disarmEndGame() {
-    clearTimeout(endGameArmTimer);
-    endGameBtn.classList.remove('armed');
-    endGameBtn.textContent = '✕ Terminar jogo';
+  // ending a round without a winner: tap once to arm, again within 3s to confirm
+  function armable(btn, idle, armed, action) {
+    let t = null;
+    const reset = () => { clearTimeout(t); btn.classList.remove('armed'); btn.textContent = idle; };
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('armed')) { reset(); action(); }
+      else { btn.classList.add('armed'); btn.textContent = armed; t = setTimeout(reset, 3000); }
+    });
+    return reset;
   }
-  endGameBtn.addEventListener('click', () => {
-    if (endGameBtn.classList.contains('armed')) {
-      disarmEndGame();
-      wsSend({ type: 'end_game' });
-    } else {
-      endGameBtn.classList.add('armed');
-      endGameBtn.textContent = 'Toca outra vez para terminar';
-      endGameArmTimer = setTimeout(disarmEndGame, 3000);
-    }
-  });
+  const resetEndRound = armable($('end-round-btn'), 'Ninguém acertou, terminar a ronda', 'Toca outra vez para terminar', () => wsSend({ type: 'end_round' }));
+  const resetHostEnd = armable($('host-end-round'), 'Terminar a ronda sem vencedor', 'Toca outra vez para terminar', () => wsSend({ type: 'end_round' }));
+
+  const endGameBtn = $('end-game-btn');
+  const resetEndGame = armable(endGameBtn, '✕ Terminar jogo', 'Toca outra vez para terminar', () => wsSend({ type: 'end_game' }));
+  function disarmEndGame() { resetEndGame(); resetEndRound(); resetHostEnd(); }
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && (guessMode || pickKey)) { guessMode = false; pickKey = null; if (state && state.phase === 'playing') renderPlaying(); }
