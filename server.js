@@ -276,10 +276,23 @@ wss.on('connection', (ws) => {
         broadcast(room, { type: 'notice', message: `${player.name} (guardião) não voltou. A ronda terminou sem vencedor.` });
         finishRound(room, null, 'guardian_left');
       }, GUARDIAN_GRACE_MS);
+    } else if (room.phase === 'playing' && room.game.mode === 'eu' && !pendingEu(room).length) {
+      // everyone still here has answered; give the one who dropped a moment to come back
+      if (room.graceTimer) clearTimeout(room.graceTimer);
+      room.graceTimer = setTimeout(() => {
+        room.graceTimer = null;
+        if (room.phase === 'playing' && room.game && room.game.mode === 'eu' && !pendingEu(room).length) finishRound(room, null, 'all_done');
+      }, GUARDIAN_GRACE_MS);
     }
     pushState(room);
   });
 });
+
+// Quem sou eu: connected players who have neither found their card nor missed
+function pendingEu(room) {
+  const g = room.game;
+  return connectedPlayers(room).filter((p) => !g.solved.includes(p.id) && !g.eliminated.includes(p.id));
+}
 
 function joinError(ws, message) {
   send(ws, { type: 'join_error', message });
@@ -337,10 +350,10 @@ function handleMessage(ws, msg) {
     ws.roomCode = room.code;
     ws.playerId = player.id;
     ensureHost(room);
-    if (room.game && room.game.guardianId === player.id && room.graceTimer) {
+    if (room.graceTimer && room.game && (room.game.mode === 'eu' || room.game.guardianId === player.id)) {
       clearTimeout(room.graceTimer);
       room.graceTimer = null;
-      if (room.phase === 'playing') broadcast(room, { type: 'notice', message: `${player.name} (guardião) voltou.` }, player.id);
+      if (room.phase === 'playing' && room.game.guardianId === player.id) broadcast(room, { type: 'notice', message: `${player.name} (guardião) voltou.` }, player.id);
     }
     send(ws, { type: 'joined', code: room.code, playerId: player.id, token: player.token });
     pushState(room);
@@ -391,8 +404,7 @@ function handleMessage(ws, msg) {
         g.guesses.push({ by: player.id, key: msg.key, correct, t: Date.now() });
         if (correct) g.solved.push(player.id);
         else g.eliminated.push(player.id);
-        const pending = connectedPlayers(room).filter((p) => !g.solved.includes(p.id) && !g.eliminated.includes(p.id));
-        if (!pending.length) return finishRound(room, null, 'all_done');
+        if (!pendingEu(room).length) return finishRound(room, null, 'all_done');
         pushState(room);
         break;
       }

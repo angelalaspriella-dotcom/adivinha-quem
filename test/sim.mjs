@@ -81,6 +81,7 @@ check('Vencedor correto', C[0].g().result.winnerId === h2.state.youId && C[0].g(
 check('Pessoa secreta revelada a todos', C.every((c) => c.g().secretKey === secret));
 check('+2 ao vencedor, 0 ao guardião', h2.me().score === 2 && guardian.me().score === 0);
 check('Duração registada', typeof C[0].g().result.seconds === 'number');
+const h2After1 = h2.me().score;
 
 console.log('\n6. Ronda 2: o guardião roda e dá a ronda por terminada');
 C[0].send({ type: 'next_round' }); await tick(200);
@@ -94,12 +95,12 @@ notAllowed.send({ type: 'end_round' }); await tick(80);
 check('Um caçador normal não termina a ronda', C[0].state.phase === 'playing');
 g2.send({ type: 'end_round' }); await tick(150);
 check('Guardião termina a ronda: ganha', C[0].state.phase === 'results' && C[0].g().result.winnerId === null && C[0].g().result.how === 'called');
-check('+1 ao guardião', g2.me().score === 1);
+check('+1 ao guardião', C[0].g().result.awards[g2.state.youId] === 1 && Object.keys(C[0].g().result.awards).length === 1);
 
 console.log('\n7. Ronda 3 com tempo, entrada a meio, todos erram');
 C[0].send({ type: 'end_game' }); await tick(150);
 check('Terminar jogo volta à sala', C.every((c) => c.state.phase === 'lobby'));
-check('Pontos mantêm-se na sala', h2.me().score === 2);
+check('Pontos mantêm-se na sala', h2.me().score === h2After1 + (g2 === h2 ? 1 : 0));
 C[0].send({ type: 'settings', minutes: 5 }); await tick(60);
 C[0].send({ type: 'start' }); await tick(200);
 const g3 = C.find((c) => c.state.youId === C[0].g().guardianId);
@@ -130,12 +131,15 @@ check('Sem voltar: ronda termina sem vencedor e sem pontos', anyone.state.phase 
 
 console.log('\n9. Modo Quem sou eu');
 const all = C.filter((c) => c !== g4).concat([back, late]).filter((c) => c.ws.readyState === 1);
-C[0].send({ type: 'end_game' }); await tick(200);
-C[1].send({ type: 'settings', mode: 'eu' }); await tick(80);
-check('Só o anfitrião muda o modo', C[0].state.settings.mode === 'quem');
-C[0].send({ type: 'settings', mode: 'eu', minutes: 0 }); await tick(80);
-check('Modo Quem sou eu escolhido', C[0].state.settings.mode === 'eu');
-C[0].send({ type: 'start' }); await tick(250);
+// the host may have changed if the dropped guardian was Angela
+const H = all.find((c) => c.state && c.state.hostId === c.state.youId);
+const NH = all.find((c) => c !== H);
+H.send({ type: 'end_game' }); await tick(200);
+NH.send({ type: 'settings', mode: 'eu' }); await tick(80);
+check('Só o anfitrião muda o modo', H.state.settings.mode === 'quem');
+H.send({ type: 'settings', mode: 'eu', minutes: 0 }); await tick(80);
+check('Modo Quem sou eu escolhido', H.state.settings.mode === 'eu');
+H.send({ type: 'start' }); await tick(250);
 const live = all.filter((c) => c.state && c.state.phase === 'playing');
 check('Ronda a decorrer no modo eu, sem guardião', live.length >= 3 && live.every((c) => c.g().mode === 'eu' && c.g().guardianId === null));
 check('Vejo as cartas dos outros, mas não a minha', live.every((c) => !(c.state.youId in c.g().identities) && Object.keys(c.g().identities).length === live.length - 1));
@@ -156,6 +160,26 @@ check('Toda a gente respondeu: ronda termina', a3.state.phase === 'results' && a
 check('Primeiro a acertar leva +3, os outros +2, quem errou 0', a3.g().result.awards[a2.state.youId] === 3 && a3.g().result.awards[a3.state.youId] === 2 && !a3.g().result.awards[a1.state.youId]);
 check('No fim, todas as cartas ficam visíveis, a minha incluída', a1.g().identities[a1.state.youId] === myKey(a1));
 newcomer.ws.close();
+
+console.log('\n10. Quem sou eu: quem falta responder sai');
+H.send({ type: 'next_round' }); await tick(250);
+const live2 = all.filter((c) => c.ws.readyState === 1 && c.state && c.state.phase === 'playing');
+const key2 = (c) => live2.find((o) => o !== c).g().identities[c.state.youId];
+const lastOne = live2[live2.length - 1];
+for (const c of live2) if (c !== lastOne) { c.send({ type: 'guess', key: key2(c) }); await tick(50); }
+await tick(150);
+check('Ronda aberta enquanto falta um', live2[0].state.phase === 'playing');
+lastOne.ws.close(); await tick(200);
+check('Sai o último por responder: tolerância, ainda a decorrer', live2[0].state.phase === 'playing');
+await tick(800);
+check('Não voltou: a ronda fecha sozinha', live2[0].state.phase === 'results' && live2[0].g().result.how === 'all_done');
+H.send({ type: 'next_round' }); await tick(250);
+check('Nova ronda de Quem sou eu a decorrer', H.state.phase === 'playing' && H.g().mode === 'eu');
+H.send({ type: 'end_round' }); await tick(150);
+check('Anfitrião fecha a ronda: resultados sem pontos', H.state.phase === 'results' && H.g().result.how === 'called' && Object.keys(H.g().result.awards).length === 0);
+H.send({ type: 'settings', mode: 'quem' }); await tick(80);
+H.send({ type: 'next_round' }); await tick(250);
+check('Trocar de jogo entre rondas, sem passar pela sala', H.state.phase === 'playing' && H.g().mode === 'quem' && !!H.g().guardianId);
 
 console.log(`\nResultado: ${pass} certos, ${fail} falhados`);
 for (const c of C.concat([late, back])) try { c.ws.close(); } catch {}

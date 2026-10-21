@@ -216,6 +216,7 @@
       return `<li class="chip ${cls}"><span class="dot" style="background:${p.color};width:10px;height:10px"></span>${esc(p.name)}${p.id === state.youId ? ' (tu)' : ''}<span class="cnt">${p.standing}</span></li>`;
     }).join('');
     $('host-end-round').hidden = !(isHost() && !isGuardian());
+    $('host-end-round').textContent = 'Terminar a ronda sem vencedor';
 
     const misses = game.guesses.filter((q) => !q.correct).slice().reverse();
     $('misses-box').hidden = !misses.length;
@@ -262,6 +263,8 @@
       || '<li class="empty-note">Ainda não há mais ninguém com carta.</li>';
 
     renderBoard(game, done);
+    $('host-end-round').hidden = !isHost();
+    $('host-end-round').textContent = 'Terminar a ronda já';
     const misses = game.guesses.filter((q) => !q.correct).slice().reverse();
     $('misses-box').hidden = !misses.length;
     $('misses-log').innerHTML = misses.map((q) => `<li><span class="n">✗</span><span class="who">${esc(player(q.by)?.name || '?')} achou que era ${esc(person(q.key)?.name || '?')}</span><span class="ans miss">ERROU</span></li>`).join('');
@@ -323,7 +326,7 @@
     const set = new Set(myDown());
     set.has(key) ? set.delete(key) : set.add(key);
     localDown = { round: state.round, keys: [...set] };
-    renderBoard(g(), me().eliminated);
+    renderBoard(g(), me().eliminated || me().solved);
     clearTimeout(flipTimer);
     flipTimer = setTimeout(() => wsSend({ type: 'flip', keys: localDown.keys }), 400);
   }
@@ -366,6 +369,8 @@
     }).join('');
     $('next-btn').hidden = !isHost();
     $('next-note').hidden = isHost();
+    $('next-mode-box').hidden = !isHost();
+    for (const btn of document.querySelectorAll('#next-mode-box [data-mode]')) btn.classList.toggle('selected', btn.dataset.mode === state.settings.mode);
     if (isEu()) return;
     const winner = r.winnerId ? player(r.winnerId) : null;
     const guardian = player(g().guardianId);
@@ -460,15 +465,16 @@
   // ending a round without a winner: tap once to arm, again within 3s to confirm
   function armable(btn, idle, armed, action) {
     let t = null;
-    const reset = () => { clearTimeout(t); btn.classList.remove('armed'); btn.textContent = idle; };
+    let idleNow = idle;
+    const reset = () => { clearTimeout(t); btn.classList.remove('armed'); btn.textContent = idleNow; };
     btn.addEventListener('click', () => {
       if (btn.classList.contains('armed')) { reset(); action(); }
-      else { btn.classList.add('armed'); btn.textContent = armed; t = setTimeout(reset, 3000); }
+      else { idleNow = idle || btn.textContent; btn.classList.add('armed'); btn.textContent = armed; t = setTimeout(reset, 3000); }
     });
     return reset;
   }
   const resetEndRound = armable($('end-round-btn'), 'Ninguém acertou, terminar a ronda', 'Toca outra vez para terminar', () => wsSend({ type: 'end_round' }));
-  const resetHostEnd = armable($('host-end-round'), 'Terminar a ronda sem vencedor', 'Toca outra vez para terminar', () => wsSend({ type: 'end_round' }));
+  const resetHostEnd = armable($('host-end-round'), null, 'Toca outra vez para terminar', () => wsSend({ type: 'end_round' }));
 
   const endGameBtn = $('end-game-btn');
   const resetEndGame = armable(endGameBtn, '✕ Terminar jogo', 'Toca outra vez para terminar', () => wsSend({ type: 'end_game' }));
