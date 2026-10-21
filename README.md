@@ -11,12 +11,20 @@ o guardião responde. Na app, cada um só baixa no seu tabuleiro as cartas que j
 quando achar que sabe, carrega em **Acho que é esta pessoa**: acertou, ganha a ronda; errou,
 fica de fora e toda a gente fica a saber quem não é.
 
-## Como se joga
+Na mesma sala há dois jogos, à escolha do anfitrião:
+
+- **Adivinha Quem**: um guardião por ronda vê a pessoa secreta; a equipa toda tenta descobrir quem é.
+- **Quem sou eu**: toda a gente recebe uma carta que só os outros veem. Cada um pergunta na
+  chamada quem é ("Tenho barba?") e, quando souber, carrega em **Já sei quem sou**. Acertou:
+  **+2**, e **+1 extra** para quem acerta primeiro. Errou: fica de fora da ronda. A ronda acaba
+  quando toda a gente tiver respondido, quando o tempo acabar, ou quando o anfitrião a terminar.
+
+## Como se joga (Adivinha Quem)
 
 1. Alguém cria uma sala e diz o código de 4 letras na chamada (ou manda o link de convite).
 2. **3 a 20 pessoas** entram a partir dos seus computadores. Quem chegar a meio de uma
    ronda entra na mesma, no fim da ordem.
-3. O anfitrião escolhe o **tempo por ronda**: sem limite, 5, 8 ou 10 minutos.
+3. O anfitrião escolhe o **jogo** e o **tempo por ronda**: sem limite, 5, 8 ou 10 minutos.
 4. Começa a ronda. A app sorteia o guardião (vai rodando, toda a gente guarda uma vez
    antes de alguém repetir) e a pessoa secreta.
 5. Perguntas e respostas em voz alta, na chamada. Na app, cada um baixa as suas cartas e
@@ -82,7 +90,7 @@ node test/sim.mjs 3100
 
 Simula 8 pessoas por WebSocket: sala, regras, guardião, cartas, palpites certos e errados,
 rotação do guardião, ronda dada por terminada, temporizador, entrada a meio da ronda, toda
-a gente a errar, e o guardião a perder a ligação (volta a tempo ou não).
+a gente a errar, o guardião a perder a ligação (volta a tempo ou não), e uma ronda de Quem sou eu.
 
 Para experimentar à mão sem equipa, enche uma sala com bots:
 

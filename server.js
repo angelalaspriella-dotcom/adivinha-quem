@@ -11,6 +11,7 @@ const GUARDIAN_GRACE_MS = Number(process.env.GUARDIAN_GRACE_MS) || 20_000; // ti
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 20;
 const ROUND_MINUTES = [0, 5, 8, 10]; // optional round timer; 0 = none
+const MODES = ['quem', 'eu'];        // quem = Adivinha Quem (one guardian), eu = Quem sou eu (everyone wears a card)
 
 const PLAYER_COLORS = [
   '#e63946', '#f4a261', '#e9c46a', '#2a9d8f', '#457b9d',
@@ -50,7 +51,7 @@ function makeRoom() {
     roundTimer: null,
     graceTimer: null,
     emptySince: null,
-    settings: { minutes: 0 }
+    settings: { mode: 'quem', minutes: 0 }
   };
   rooms.set(room.code, room);
   return room;
@@ -88,15 +89,25 @@ function snapshotFor(room, player) {
       connected: p.connected,
       score: p.score || 0,
       standing: g ? PEOPLE.length - (g.down[p.id] || []).length : PEOPLE.length,
-      eliminated: g ? g.eliminated.includes(p.id) : false
+      eliminated: g ? g.eliminated.includes(p.id) : false,
+      solved: g ? g.solved.includes(p.id) : false
     })),
     game: null
   };
   if (g) {
     const reveal = room.phase === 'results' || player.id === g.guardianId;
+    // Quem sou eu: you see everyone's card but your own, until you solve it
+    const identities = {};
+    if (g.mode === 'eu') {
+      for (const [pid, key] of Object.entries(g.identities)) {
+        if (pid !== player.id || room.phase === 'results' || g.solved.includes(pid)) identities[pid] = key;
+      }
+    }
     base.game = {
+      mode: g.mode,
       guardianId: g.guardianId,
       secretKey: reveal ? g.secretKey : null,
+      identities,
       endsAt: g.endsAt || null,
       startedAt: g.startedAt,
       guesses: g.guesses,
@@ -133,15 +144,39 @@ function pickGuardian(room) {
   return ids[0];
 }
 
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Deal a card nobody else at the table is wearing; when there are more
+// players than faces, repeats are unavoidable.
+function dealIdentity(g) {
+  const used = new Set(Object.values(g.identities));
+  const free = PEOPLE.filter((p) => !used.has(p.key));
+  const pool = free.length ? free : PEOPLE;
+  return pool[Math.floor(Math.random() * pool.length)].key;
+}
+
 function startRound(room) {
   clearTimers(room);
-  const guardianId = pickGuardian(room);
-  room.guardianHistory = [...room.guardianHistory.filter((id) => id !== guardianId), guardianId];
+  const mode = room.settings.mode;
+  let guardianId = null;
+  if (mode === 'quem') {
+    guardianId = pickGuardian(room);
+    room.guardianHistory = [...room.guardianHistory.filter((id) => id !== guardianId), guardianId];
+  }
   room.round += 1;
   const minutes = room.settings.minutes;
   room.game = {
+    mode,
     guardianId,
-    secretKey: PEOPLE[Math.floor(Math.random() * PEOPLE.length)].key,
+    secretKey: mode === 'quem' ? PEOPLE[Math.floor(Math.random() * PEOPLE.length)].key : null,
+    identities: {}, // Quem sou eu: playerId -> person key
+    solved: [],     // Quem sou eu: who already found their card, in order
     startedAt: Date.now(),
     endsAt: minutes ? Date.now() + minutes * 60_000 : null,
     guesses: [],   // { by, key, correct, t }
@@ -149,6 +184,9 @@ function startRound(room) {
     down: {},      // playerId -> [person keys]
     result: null
   };
+  if (mode === 'eu') {
+    for (const p of shuffle(connectedPlayers(room))) room.game.identities[p.id] = dealIdentity(room.game);
+  }
   if (minutes) room.roundTimer = setTimeout(() => finishRound(room, null, 'time'), minutes * 60_000);
   room.phase = 'playing';
   pushState(room);
@@ -164,10 +202,13 @@ function finishRound(room, winnerId, how) {
     awards[id] = (awards[id] || 0) + n;
     p.score = (p.score || 0) + n;
   };
-  if (winnerId) give(winnerId, 2);
+  if (g.mode === 'eu') {
+    // +2 for finding your card, +1 more for the first to do it
+    g.solved.forEach((id, i) => give(id, i === 0 ? 3 : 2));
+  } else if (winnerId) give(winnerId, 2);
   else if (how !== 'guardian_left') give(g.guardianId, 1);
   g.endsAt = null;
-  g.result = { winnerId, how, awards, secretKey: g.secretKey, seconds: Math.round((Date.now() - g.startedAt) / 1000) };
+  g.result = { winnerId, how, awards, secretKey: g.secretKey, solved: g.solved, seconds: Math.round((Date.now() - g.startedAt) / 1000) };
   room.phase = 'results';
   pushState(room);
 }
@@ -223,7 +264,7 @@ wss.on('connection', (ws) => {
 
     if (connectedPlayers(room).length === 0) {
       room.emptySince = Date.now();
-    } else if (room.phase === 'playing' && player.id === room.game.guardianId) {
+    } else if (room.phase === 'playing' && room.game.mode === 'quem' && player.id === room.game.guardianId) {
       // the one person who knows the secret dropped: a reload or a wifi blip
       // should not kill the round, so wait a bit for them before giving up
       broadcast(room, { type: 'notice', message: `${player.name} (guardião) perdeu a ligação. À espera que volte…` });
@@ -276,6 +317,8 @@ function handleMessage(ws, msg) {
     if (!room.hostId) room.hostId = player.id;
     ws.roomCode = room.code;
     ws.playerId = player.id;
+    // joining a Quem sou eu round in progress: you get a card too
+    if (room.phase === 'playing' && room.game.mode === 'eu') room.game.identities[player.id] = dealIdentity(room.game);
     send(ws, { type: 'joined', code: room.code, playerId: player.id, token: player.token });
     pushState(room);
     return;
@@ -316,6 +359,7 @@ function handleMessage(ws, msg) {
     case 'settings': {
       if (!isHost || room.phase === 'playing') return;
       if (ROUND_MINUTES.includes(msg.minutes)) room.settings.minutes = msg.minutes;
+      if (MODES.includes(msg.mode)) room.settings.mode = msg.mode;
       pushState(room);
       break;
     }
@@ -339,8 +383,19 @@ function handleMessage(ws, msg) {
 
     case 'guess': {
       if (room.phase !== 'playing' || player.id === g.guardianId) return;
-      if (g.eliminated.includes(player.id)) return;
+      if (g.eliminated.includes(player.id) || g.solved.includes(player.id)) return;
       if (!PEOPLE.some((p) => p.key === msg.key)) return;
+      if (g.mode === 'eu') {
+        if (!g.identities[player.id]) return;
+        const correct = msg.key === g.identities[player.id];
+        g.guesses.push({ by: player.id, key: msg.key, correct, t: Date.now() });
+        if (correct) g.solved.push(player.id);
+        else g.eliminated.push(player.id);
+        const pending = connectedPlayers(room).filter((p) => !g.solved.includes(p.id) && !g.eliminated.includes(p.id));
+        if (!pending.length) return finishRound(room, null, 'all_done');
+        pushState(room);
+        break;
+      }
       const correct = msg.key === g.secretKey;
       g.guesses.push({ by: player.id, key: msg.key, correct, t: Date.now() });
       if (correct) return finishRound(room, player.id, 'guess');
@@ -353,7 +408,7 @@ function handleMessage(ws, msg) {
 
     case 'end_round': {
       // guardian or host closes the round when nobody will get it
-      if (room.phase !== 'playing' || !(isHost || player.id === g.guardianId)) return;
+      if (room.phase !== 'playing' || !(isHost || (g.guardianId && player.id === g.guardianId))) return;
       finishRound(room, null, 'called');
       break;
     }

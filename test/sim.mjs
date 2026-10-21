@@ -128,6 +128,35 @@ check('Tolerância cancelada: ronda ainda a decorrer', anyone.state.phase === 'p
 back.ws.close(); await tick(1000);
 check('Sem voltar: ronda termina sem vencedor e sem pontos', anyone.state.phase === 'results' && anyone.g().result.how === 'guardian_left' && Object.keys(anyone.g().result.awards).length === 0);
 
+console.log('\n9. Modo Quem sou eu');
+const all = C.filter((c) => c !== g4).concat([back, late]).filter((c) => c.ws.readyState === 1);
+C[0].send({ type: 'end_game' }); await tick(200);
+C[1].send({ type: 'settings', mode: 'eu' }); await tick(80);
+check('Só o anfitrião muda o modo', C[0].state.settings.mode === 'quem');
+C[0].send({ type: 'settings', mode: 'eu', minutes: 0 }); await tick(80);
+check('Modo Quem sou eu escolhido', C[0].state.settings.mode === 'eu');
+C[0].send({ type: 'start' }); await tick(250);
+const live = all.filter((c) => c.state && c.state.phase === 'playing');
+check('Ronda a decorrer no modo eu, sem guardião', live.length >= 3 && live.every((c) => c.g().mode === 'eu' && c.g().guardianId === null));
+check('Vejo as cartas dos outros, mas não a minha', live.every((c) => !(c.state.youId in c.g().identities) && Object.keys(c.g().identities).length === live.length - 1));
+check('Toda a gente tem carta diferente', new Set(Object.values(live[0].g().identities)).size === Object.keys(live[0].g().identities).length);
+const a1 = live[0], a2 = live[1], a3 = live[2];
+const myKey = (c) => live.find((o) => o !== c).g().identities[c.state.youId];
+a1.send({ type: 'guess', key: live[0].state.people.map((p) => p.key).find((k) => k !== myKey(a1)) }); await tick(150);
+check('Palpite errado: fora da ronda, e a sua carta continua escondida para ele', a1.me().eliminated && !(a1.state.youId in a1.g().identities));
+a2.send({ type: 'guess', key: myKey(a2) }); await tick(150);
+check('Palpite certo: fica resolvido e passa a ver a sua carta', a2.me().solved && a2.g().identities[a2.state.youId] === myKey(a2));
+check('Os outros veem quem já acertou', a3.state.players.find((p) => p.id === a2.state.youId).solved);
+check('Ronda continua enquanto houver gente a pensar', a3.state.phase === 'playing');
+const newcomer = client('Rita'); await newcomer.open(); newcomer.send({ type: 'join', name: 'Rita', code }); await tick(150);
+check('Quem entra a meio recebe carta', newcomer.state.phase === 'playing' && !!a3.g().identities[newcomer.state.youId]);
+for (const c of live.slice(2).concat([newcomer])) { c.send({ type: 'guess', key: myKey(c) }); await tick(60); }
+await tick(250);
+check('Toda a gente respondeu: ronda termina', a3.state.phase === 'results' && a3.g().result.how === 'all_done');
+check('Primeiro a acertar leva +3, os outros +2, quem errou 0', a3.g().result.awards[a2.state.youId] === 3 && a3.g().result.awards[a3.state.youId] === 2 && !a3.g().result.awards[a1.state.youId]);
+check('No fim, todas as cartas ficam visíveis, a minha incluída', a1.g().identities[a1.state.youId] === myKey(a1));
+newcomer.ws.close();
+
 console.log(`\nResultado: ${pass} certos, ${fail} falhados`);
-for (const c of C.concat([late])) c.ws.close();
+for (const c of C.concat([late, back])) try { c.ws.close(); } catch {}
 process.exit(fail ? 1 : 0);

@@ -181,6 +181,26 @@ input[type="text"] {
 .rules summary { font-family: var(--font-display); font-size: 14px; cursor: pointer; }
 .rules ol { padding-left: 20px; line-height: 1.5; margin: 10px 0 0; }
 .rules li + li { margin-top: 6px; }
+.rules-mode { font-family: var(--font-display); font-size: 13px; margin-top: 14px; }
+
+/* Quem sou eu */
+.eu-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; margin-bottom: 16px; align-items: start; }
+@media (max-width: 560px) { .eu-row { grid-template-columns: 1fr; } }
+.mycard { margin: 0; }
+.mycard .unknown { width: 110px; height: 110px; border-radius: 50%; border: 4px solid var(--yellow); box-shadow: 0 0 0 3px var(--ink); background: var(--ink); color: var(--yellow); font-family: var(--font-display); font-size: 56px; display: grid; place-items: center; }
+.others-box { margin: 0; }
+.others { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.others li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 2px solid var(--ink); border-radius: 10px; background: #fff; min-width: 0; }
+.others .ph { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; border: 3px solid var(--yellow); box-shadow: 0 0 0 2px var(--ink); flex: none; background: var(--paper-deep); }
+.others .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.others .who { min-width: 0; display: grid; gap: 2px; }
+.others .who .pn { font-family: var(--font-pixel); font-size: 7px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.others .who .idn { font-weight: 700; font-size: 13px; line-height: 1.15; overflow-wrap: anywhere; }
+.others li.ok { background: var(--green); color: var(--cream); }
+.others li.ok .pn { color: rgb(255 248 230 / .8); }
+.others li.ko { background: var(--ink); color: var(--cream); }
+.others li.ko .pn { color: rgb(255 248 230 / .7); }
+.tag-ok { background: var(--green); color: var(--cream); }
 
 /* ---------- lobby ---------- */
 

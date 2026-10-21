@@ -95,6 +95,11 @@
   const isHost = () => state && state.hostId === state.youId;
   const g = () => state && state.game;
   const isGuardian = () => g() && g().guardianId === state.youId;
+  const isEu = () => g() && g().mode === 'eu';
+  const MODE_NOTES = {
+    quem: 'Um guardião por ronda vê a pessoa secreta; a equipa toda tenta descobrir quem é.',
+    eu: 'Toda a gente recebe uma carta que só os outros veem. Cada um tenta descobrir quem é.'
+  };
 
   function toast(text) {
     const el = $('toast');
@@ -144,13 +149,18 @@
   function renderLobby() {
     $('room-code').textContent = state.code;
     const s = state.settings;
+    for (const btn of document.querySelectorAll('[data-mode]')) {
+      btn.classList.toggle('selected', btn.dataset.mode === s.mode);
+      btn.disabled = !isHost();
+    }
+    $('mode-note').textContent = MODE_NOTES[s.mode] || '';
     for (const btn of document.querySelectorAll('[data-minutes]')) {
       btn.classList.toggle('selected', Number(btn.dataset.minutes) === s.minutes);
       btn.disabled = !isHost();
     }
     $('setting-note').textContent = (s.minutes
-      ? `Cada ronda tem ${s.minutes} minutos. Se o tempo acabar sem ninguém acertar, o guardião ganha.`
-      : 'Sem limite de tempo: o guardião termina a ronda quando ninguém acertar.') + (isHost() ? '' : ' Só o anfitrião muda as regras.');
+      ? `Cada ronda tem ${s.minutes} minutos.` + (s.mode === 'quem' ? ' Se o tempo acabar sem ninguém acertar, o guardião ganha.' : ' Quem não tiver acertado até lá fica sem pontos.')
+      : (s.mode === 'quem' ? 'Sem limite de tempo: o guardião termina a ronda quando ninguém acertar.' : 'Sem limite de tempo: a ronda acaba quando toda a gente tiver respondido, ou quando o anfitrião a terminar.')) + (isHost() ? '' : ' Só o anfitrião muda as regras.');
     $('lobby-players').innerHTML = state.players.map((p) => playerRow(p, p.score ? [`<span class="pts">${p.score} pts</span>`] : [])).join('');
     const n = state.players.filter((p) => p.connected).length;
     const need = Math.max(0, 3 - n);
@@ -169,10 +179,13 @@
 
   function renderPlaying() {
     const game = g();
+    if (isEu()) return renderPlayingEu(game);
+    $('eu-view').hidden = true;
+    $('team-box').hidden = false;
     const guardian = player(game.guardianId);
     const iAmOut = me().eliminated;
 
-    $('round-badge').textContent = `RONDA ${state.round}`;
+    $('round-badge').textContent = `RONDA ${state.round} · ADIVINHA QUEM`;
     startTimer(game.endsAt, $('timer'), $('timer-value'));
 
     const banner = $('turn-banner');
@@ -209,16 +222,61 @@
     $('misses-log').innerHTML = misses.map((q) => `<li><span class="n">✗</span><span class="who">${esc(player(q.by)?.name || '?')} disse ${esc(person(q.key)?.name || '?')}</span><span class="ans miss">NÃO É</span></li>`).join('');
   }
 
+  function identityChip(pid, key, { tagYou = false } = {}) {
+    const p = player(pid);
+    const id = person(key);
+    const cls = p.solved ? 'ok' : p.eliminated ? 'ko' : '';
+    const status = p.solved ? ' ✓' : p.eliminated ? ' ✗' : '';
+    return `<li class="${cls}"><span class="ph">${id ? photo(id.key) : ''}</span><span class="who"><span class="pn">${esc(p.name)}${tagYou && pid === state.youId ? ' (tu)' : ''}${status}</span><span class="idn">${id ? esc(id.name) : '?'}</span></span></li>`;
+  }
+
+  function renderPlayingEu(game) {
+    const meP = me();
+    const done = meP.eliminated || meP.solved;
+    $('round-badge').textContent = `RONDA ${state.round} · QUEM SOU EU`;
+    startTimer(game.endsAt, $('timer'), $('timer-value'));
+    $('guardian-view').hidden = true;
+    $('eu-view').hidden = false;
+    $('player-view').hidden = false;
+    $('team-box').hidden = true;
+
+    const banner = $('turn-banner');
+    banner.className = 'turn-banner';
+    if (meP.solved) {
+      banner.classList.add('mine');
+      banner.innerHTML = 'Acertaste! Já sabes quem és.<small>Continua a responder às perguntas dos outros na chamada.</small>';
+    } else if (meP.eliminated) {
+      banner.classList.add('out');
+      banner.innerHTML = 'Erraste. Estás fora desta ronda.<small>Continua a responder às perguntas dos outros.</small>';
+    } else {
+      banner.innerHTML = 'Tens uma carta na testa<small>Pergunta na chamada quem és ("Tenho óculos?"). Aqui, baixa as cartas que já não podes ser.</small>';
+    }
+
+    const myKey = game.identities[state.youId];
+    const myP = myKey ? person(myKey) : null;
+    $('my-photo').innerHTML = myP ? photo(myP.key) : '<span class="unknown">?</span>';
+    $('my-name').textContent = myP ? myP.name : '???';
+    $('others-list').innerHTML = state.players
+      .filter((p) => p.id !== state.youId && game.identities[p.id])
+      .map((p) => identityChip(p.id, game.identities[p.id])).join('')
+      || '<li class="empty-note">Ainda não há mais ninguém com carta.</li>';
+
+    renderBoard(game, done);
+    const misses = game.guesses.filter((q) => !q.correct).slice().reverse();
+    $('misses-box').hidden = !misses.length;
+    $('misses-log').innerHTML = misses.map((q) => `<li><span class="n">✗</span><span class="who">${esc(player(q.by)?.name || '?')} achou que era ${esc(person(q.key)?.name || '?')}</span><span class="ans miss">ERROU</span></li>`).join('');
+  }
+
   function renderBoard(game, iAmOut) {
     const down = myDown();
     const total = state.people.length;
     const canPlay = !iAmOut;
-    $('board-count').textContent = `${total - down.length} de ${total} de pé${canPlay ? (guessMode ? ' · escolhe quem é' : ' · toca para baixar') : ''}`;
+    $('board-count').textContent = `${total - down.length} de ${total} de pé${canPlay ? (guessMode ? (isEu() ? ' · escolhe quem és' : ' · escolhe quem é') : ' · toca para baixar') : ''}`;
     const board = $('board');
     board.classList.toggle('guessing', guessMode && canPlay);
     // only rebuild the cards when something on the board changed, so the
     // flip animation survives the server's state pushes
-    const key = `${state.round}|${canPlay}|${[...down].sort().join(',')}`;
+    const key = `${state.round}|${canPlay}|${guessMode}|${[...down].sort().join(',')}`;
     if (board.dataset.key === key) { renderGuessArea(); return; }
     board.dataset.key = key;
     board.innerHTML = state.people.map((p) => {
@@ -242,20 +300,21 @@
 
   function renderGuessArea() {
     const area = $('guess-area');
-    if (me().eliminated) { area.innerHTML = ''; return; }
+    const eu = isEu();
+    if (me().eliminated || me().solved) { area.innerHTML = ''; return; }
     if (pickKey) {
       const p = person(pickKey);
-      area.innerHTML = `<div class="confirm"><div><b>É ${esc(p.name)}?</b> Se errares, ficas fora da ronda e toda a gente fica a saber.</div>
-        <div class="row"><button class="btn btn-red" id="confirm-guess">Sim, é ${esc(p.name)}</button><button class="btn" id="cancel-guess">Voltar</button></div></div>`;
+      area.innerHTML = `<div class="confirm"><div><b>${eu ? `És ${esc(p.name)}?` : `É ${esc(p.name)}?`}</b> Se errares, ficas fora da ronda e toda a gente fica a saber.</div>
+        <div class="row"><button class="btn btn-red" id="confirm-guess">${eu ? `Sim, sou ${esc(p.name)}` : `Sim, é ${esc(p.name)}`}</button><button class="btn" id="cancel-guess">Voltar</button></div></div>`;
       $('confirm-guess').addEventListener('click', () => { wsSend({ type: 'guess', key: pickKey }); guessMode = false; pickKey = null; });
       $('cancel-guess').addEventListener('click', () => { pickKey = null; renderGuessArea(); });
       area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else if (guessMode) {
-      area.innerHTML = `<div class="confirm"><div><b>Toca no tabuleiro</b> na pessoa que achas que é.</div>
+      area.innerHTML = `<div class="confirm"><div><b>Toca no tabuleiro</b> ${eu ? 'em quem achas que és.' : 'na pessoa que achas que é.'}</div>
         <div class="row"><button class="btn" id="cancel-guess">Afinal não</button></div></div>`;
       $('cancel-guess').addEventListener('click', () => { guessMode = false; renderPlaying(); });
     } else {
-      area.innerHTML = `<button class="btn btn-yellow btn-big btn-guess" id="guess-btn">💡 Acho que é esta pessoa</button>`;
+      area.innerHTML = `<button class="btn btn-yellow btn-big btn-guess" id="guess-btn">${eu ? '🪪 Já sei quem sou' : '💡 Acho que é esta pessoa'}</button>`;
       $('guess-btn').addEventListener('click', () => { guessMode = true; renderPlaying(); });
     }
   }
@@ -269,9 +328,45 @@
     flipTimer = setTimeout(() => wsSend({ type: 'flip', keys: localDown.keys }), 400);
   }
 
+  function renderResultsEu(r) {
+    const meP = me();
+    const banner = $('result-banner');
+    banner.className = 'result-banner' + (meP.solved ? '' : ' guardian');
+    banner.textContent = meP.solved ? (r.solved[0] === state.youId ? 'ACERTASTE PRIMEIRO!' : 'ACERTASTE!') : meP.eliminated ? 'ERRASTE…' : 'ACABOU A RONDA';
+    $('result-identities').hidden = false;
+    $('reveal-row').hidden = true;
+    $('identities-list').innerHTML = state.players.filter((p) => g().identities[p.id]).map((p) => identityChip(p.id, g().identities[p.id], { tagYou: true })).join('');
+    const n = r.solved.length;
+    const first = r.solved[0] ? player(r.solved[0]) : null;
+    const howText = {
+      all_done: 'Toda a gente já respondeu.',
+      time: 'Acabou o tempo.',
+      called: 'O anfitrião deu a ronda por terminada.'
+    };
+    $('result-how-eu').textContent = `${howText[r.how] || ''} ${n ? `${n} ${n === 1 ? 'pessoa acertou' : 'pessoas acertaram'}${first ? `, ${first.name} em primeiro` : ''}.` : 'Ninguém acertou.'}`;
+    $('score-rules').textContent = '+2 a quem acerta quem é · +1 extra para o primeiro';
+  }
+
   function renderResults() {
     const r = g().result;
     if (!r) return;
+    if (isEu()) renderResultsEu(r);
+    else { $('result-identities').hidden = true; $('reveal-row').hidden = false; $('score-rules').textContent = '+2 a quem acerta · +1 ao guardião se ninguém acertar'; }
+    const standings = [...state.players].sort((a, b) => (b.score || 0) - (a.score || 0));
+    const top = standings[0]?.score || 0;
+    $('leaderboard').innerHTML = standings.map((p) => {
+      const gain = (r.awards && r.awards[p.id]) || 0;
+      const tags = [
+        !isEu() && p.id === g().guardianId ? '<span class="tag tag-guard">guardião</span>' : '',
+        top > 0 && p.score === top ? '<span class="tag tag-win">líder</span>' : '',
+        gain ? `<span class="gain">+${gain}</span>` : '',
+        `<span class="pts">${p.score || 0} pts</span>`
+      ];
+      return playerRow(p, tags);
+    }).join('');
+    $('next-btn').hidden = !isHost();
+    $('next-note').hidden = isHost();
+    if (isEu()) return;
     const winner = r.winnerId ? player(r.winnerId) : null;
     const guardian = player(g().guardianId);
     const sp = person(r.secretKey);
@@ -297,21 +392,6 @@
     $('result-guesses').textContent = misses.length
       ? 'Palpites errados: ' + misses.map((q) => `${player(q.by)?.name || '?'} disse ${person(q.key)?.name || '?'}`).join('; ') + '.'
       : 'Ninguém errou um palpite nesta ronda.';
-
-    const standings = [...state.players].sort((a, b) => (b.score || 0) - (a.score || 0));
-    const top = standings[0]?.score || 0;
-    $('leaderboard').innerHTML = standings.map((p) => {
-      const gain = (r.awards && r.awards[p.id]) || 0;
-      const tags = [
-        p.id === g().guardianId ? '<span class="tag tag-guard">guardião</span>' : '',
-        top > 0 && p.score === top ? '<span class="tag tag-win">líder</span>' : '',
-        gain ? `<span class="gain">+${gain}</span>` : '',
-        `<span class="pts">${p.score || 0} pts</span>`
-      ];
-      return playerRow(p, tags);
-    }).join('');
-    $('next-btn').hidden = !isHost();
-    $('next-note').hidden = isHost();
   }
 
   // ---------- timer ----------
@@ -369,6 +449,9 @@
 
   for (const btn of document.querySelectorAll('[data-minutes]')) {
     btn.addEventListener('click', () => wsSend({ type: 'settings', minutes: Number(btn.dataset.minutes) }));
+  }
+  for (const btn of document.querySelectorAll('[data-mode]')) {
+    btn.addEventListener('click', () => wsSend({ type: 'settings', mode: btn.dataset.mode }));
   }
 
   $('start-btn').addEventListener('click', () => wsSend({ type: 'start' }));
