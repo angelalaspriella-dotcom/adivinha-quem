@@ -202,6 +202,13 @@ input[type="text"] {
 .others li.ko .pn { color: rgb(255 248 230 / .7); }
 .tag-ok { background: var(--green); color: var(--cream); }
 
+/* standings */
+ol.player-list { list-style: none; padding: 0; }
+.rank { font-family: var(--font-pixel); font-size: 10px; width: 34px; flex: none; text-align: center; }
+.rank.medal { font-family: var(--font-body); font-size: 22px; line-height: 1; }
+.rank-row.first { background: var(--yellow); }
+.leader-line { font-weight: 700; margin-bottom: 10px; }
+
 /* ---------- lobby ---------- */
 
 .lobby-head { text-align: center; margin-bottom: 20px; }

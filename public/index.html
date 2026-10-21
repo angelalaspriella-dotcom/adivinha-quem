@@ -150,6 +150,11 @@
         <h2 class="box-title">Palpites errados</h2>
         <ul class="answer-log" id="misses-log"></ul>
       </div>
+
+      <div class="box" id="standings-box" hidden>
+        <h2 class="box-title">Classificação <span class="lap-label">desde o início da sala</span></h2>
+        <ol class="player-list" id="standings-list"></ol>
+      </div>
     </section>
 
     <!-- RESULTS -->
@@ -172,8 +177,9 @@
         </div>
       </div>
       <div class="box">
-        <h2 class="box-title">Tabela da sala</h2>
-        <ul class="player-list" id="leaderboard"></ul>
+        <h2 class="box-title">Classificação <span class="lap-label">desde o início da sala</span></h2>
+        <p class="result-line leader-line" id="leader-line"></p>
+        <ol class="player-list" id="leaderboard"></ol>
         <p class="score-rules" id="score-rules"></p>
       </div>
       <div class="box" id="next-mode-box" hidden>

@@ -133,6 +133,34 @@
     }
   }
 
+  // Standings for the whole room: sorted by points, ties share a position.
+  function ranked() {
+    const list = [...state.players].sort((a, b) => (b.score || 0) - (a.score || 0) || a.name.localeCompare(b.name));
+    let pos = 0, prev = null;
+    return list.map((p, i) => {
+      if (p.score !== prev) { pos = i + 1; prev = p.score; }
+      return { p, pos };
+    });
+  }
+  const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+  function scoreboard(awards = {}, { guardianId = null } = {}) {
+    const anyPoints = state.players.some((p) => p.score > 0);
+    return ranked().map(({ p, pos }) => {
+      const gain = awards[p.id] || 0;
+      const medal = anyPoints && MEDAL[pos] ? MEDAL[pos] : '';
+      return `<li class="player-row rank-row ${p.connected ? '' : 'disconnected'} ${anyPoints && pos === 1 ? 'first' : ''}">
+        <span class="rank ${medal ? 'medal' : ''}">${medal || `${pos}º`}</span>
+        <span class="dot" style="background:${p.color}"></span>
+        <span class="player-name">${esc(p.name)}</span>
+        ${p.id === state.youId ? '<span class="tag tag-you">tu</span>' : ''}
+        ${guardianId && p.id === guardianId ? '<span class="tag tag-guard">guardião</span>' : ''}
+        ${!p.connected ? '<span class="tag">ausente</span>' : ''}
+        ${gain ? `<span class="gain">+${gain}</span>` : ''}
+        <span class="pts">${p.score || 0} pts</span>
+      </li>`;
+    }).join('');
+  }
+
   function playerRow(p, tags = []) {
     const t = [
       p.id === state.youId ? '<span class="tag tag-you">tu</span>' : '',
@@ -161,7 +189,8 @@
     $('setting-note').textContent = (s.minutes
       ? `Cada ronda tem ${s.minutes} minutos.` + (s.mode === 'quem' ? ' Se o tempo acabar sem ninguém acertar, o guardião ganha.' : ' Quem não tiver acertado até lá fica sem pontos.')
       : (s.mode === 'quem' ? 'Sem limite de tempo: o guardião termina a ronda quando ninguém acertar.' : 'Sem limite de tempo: a ronda acaba quando toda a gente tiver respondido, ou quando o anfitrião a terminar.')) + (isHost() ? '' : ' Só o anfitrião muda as regras.');
-    $('lobby-players').innerHTML = state.players.map((p) => playerRow(p, p.score ? [`<span class="pts">${p.score} pts</span>`] : [])).join('');
+    const anyPoints = state.players.some((p) => p.score > 0);
+    $('lobby-players').innerHTML = anyPoints ? scoreboard() : state.players.map((p) => playerRow(p)).join('');
     const n = state.players.filter((p) => p.connected).length;
     const need = Math.max(0, 3 - n);
     $('lobby-note').textContent = need
@@ -217,6 +246,7 @@
     }).join('');
     $('host-end-round').hidden = !(isHost() && !isGuardian());
     $('host-end-round').textContent = 'Terminar a ronda sem vencedor';
+    renderStandingsBox();
 
     const misses = game.guesses.filter((q) => !q.correct).slice().reverse();
     $('misses-box').hidden = !misses.length;
@@ -265,9 +295,15 @@
     renderBoard(game, done);
     $('host-end-round').hidden = !isHost();
     $('host-end-round').textContent = 'Terminar a ronda já';
-    const misses = game.guesses.filter((q) => !q.correct).slice().reverse();
-    $('misses-box').hidden = !misses.length;
-    $('misses-log').innerHTML = misses.map((q) => `<li><span class="n">✗</span><span class="who">${esc(player(q.by)?.name || '?')} achou que era ${esc(person(q.key)?.name || '?')}</span><span class="ans miss">ERROU</span></li>`).join('');
+    // wrong guesses stay private in this mode: who you guessed would be a clue for the others
+    $('misses-box').hidden = true;
+    renderStandingsBox();
+  }
+
+  function renderStandingsBox() {
+    const box = $('standings-box');
+    box.hidden = !state.players.some((p) => p.score > 0);
+    $('standings-list').innerHTML = scoreboard();
   }
 
   function renderBoard(game, iAmOut) {
@@ -355,18 +391,11 @@
     if (!r) return;
     if (isEu()) renderResultsEu(r);
     else { $('result-identities').hidden = true; $('reveal-row').hidden = false; $('score-rules').textContent = '+2 a quem acerta · +1 ao guardião se ninguém acertar'; }
-    const standings = [...state.players].sort((a, b) => (b.score || 0) - (a.score || 0));
-    const top = standings[0]?.score || 0;
-    $('leaderboard').innerHTML = standings.map((p) => {
-      const gain = (r.awards && r.awards[p.id]) || 0;
-      const tags = [
-        !isEu() && p.id === g().guardianId ? '<span class="tag tag-guard">guardião</span>' : '',
-        top > 0 && p.score === top ? '<span class="tag tag-win">líder</span>' : '',
-        gain ? `<span class="gain">+${gain}</span>` : '',
-        `<span class="pts">${p.score || 0} pts</span>`
-      ];
-      return playerRow(p, tags);
-    }).join('');
+    $('leaderboard').innerHTML = scoreboard(r.awards || {}, { guardianId: isEu() ? null : g().guardianId });
+    const lead = ranked().filter(({ pos }) => pos === 1).map(({ p }) => p);
+    $('leader-line').textContent = state.players.some((p) => p.score > 0)
+      ? (lead.length === 1 ? `${lead[0].name} vai à frente com ${lead[0].score} pts.` : `Empate na frente: ${lead.map((p) => p.name).join(', ')} com ${lead[0].score} pts.`)
+      : 'Ainda ninguém marcou.';
     $('next-btn').hidden = !isHost();
     $('next-note').hidden = isHost();
     $('next-mode-box').hidden = !isHost();
