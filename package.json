@@ -1,0 +1,16 @@
+{
+  "name": "adivinha-quem",
+  "version": "1.0.0",
+  "description": "Adivinha Quem para a equipa toda numa video call — um guardião, uma pessoa secreta, toda a gente à caça.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}

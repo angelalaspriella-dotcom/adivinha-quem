@@ -1,0 +1,8 @@
+# Render blueprint — lets Render auto-configure the service from the repo.
+services:
+  - type: web
+    name: adivinha-quem
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
